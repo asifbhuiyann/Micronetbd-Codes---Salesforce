@@ -1,0 +1,69 @@
+// Anonymous Apex script to extract ALL fields from Contact object
+// and generate CSV file
+
+// Get all fields from the Contact object
+Map<String, Schema.SObjectField> fieldMap = Schema.getGlobalDescribe()
+    .get('Contact')
+    .getDescribe()
+    .fields.getMap();
+
+// Generate CSV content with all fields
+String csvContent = 'Field Label,Field API Name,Data Type,Required,Length\n';
+List<String> sortedFieldNames = new List<String>(fieldMap.keySet());
+sortedFieldNames.sort();
+
+Integer fieldCount = 0;
+for (String fieldName : sortedFieldNames) {
+    Schema.DescribeFieldResult fieldDescribe = fieldMap.get(fieldName).getDescribe();
+    
+    // Get field properties
+    String label = fieldDescribe.getLabel();
+    String apiName = fieldDescribe.getName();
+    String dataType = String.valueOf(fieldDescribe.getType());
+    String isRequired = fieldDescribe.isNillable() ? 'No' : 'Yes';
+    String length = fieldDescribe.getLength() > 0 ? String.valueOf(fieldDescribe.getLength()) : 'N/A';
+    
+    // Escape commas and quotes in field labels
+    if (label.contains(',') || label.contains('"') || label.contains('\n')) {
+        label = '"' + label.replace('"', '""') + '"';
+    }
+    
+    csvContent += label + ',' + apiName + ',' + dataType + ',' + isRequired + ',' + length + '\n';
+    fieldCount++;
+}
+
+// Create the CSV file
+ContentVersion csvFile = new ContentVersion();
+csvFile.Title = 'Contact_All_Fields';
+csvFile.PathOnClient = 'Contact_All_Fields.csv';
+csvFile.VersionData = Blob.valueOf(csvContent);
+csvFile.FirstPublishLocationId = UserInfo.getUserId();
+
+try {
+    insert csvFile;
+    System.debug('CSV file created successfully!');
+    System.debug('File Title: ' + csvFile.Title);
+    System.debug('Total fields exported: ' + fieldCount);
+    
+    // Get the ContentDocument ID for reference
+    ContentVersion insertedFile = [
+        SELECT ContentDocumentId, Title 
+        FROM ContentVersion 
+        WHERE Id = :csvFile.Id
+    ];
+    System.debug('ContentDocument ID: ' + insertedFile.ContentDocumentId);
+    System.debug('You can find the file in Files tab or in your personal Files library');
+    
+} catch (Exception e) {
+    System.debug('Error creating CSV file: ' + e.getMessage());
+}
+
+// Also output first few fields to debug log for preview
+System.debug('CSV Content Preview (first 10 fields):');
+Integer previewCount = 0;
+for (String fieldName : sortedFieldNames) {
+    if (previewCount >= 10) break;
+    Schema.DescribeFieldResult fieldDescribe = fieldMap.get(fieldName).getDescribe();
+    System.debug(fieldDescribe.getLabel() + ' -> ' + fieldDescribe.getName());
+    previewCount++;
+}
