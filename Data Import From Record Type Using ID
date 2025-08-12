@@ -1,0 +1,137 @@
+// Anonymous Apex script to extract fields from Artwork record type
+// and generate CSV file
+
+// Using the provided record type ID
+Id artworkRecordTypeId = '012fh00000077nxAAA';
+String recordTypeName = '';
+
+try {
+    RecordType artworkRT = [
+        SELECT Id, Name, DeveloperName 
+        FROM RecordType 
+        WHERE Id = :artworkRecordTypeId 
+        LIMIT 1
+    ];
+    recordTypeName = artworkRT.Name;
+    System.debug('Using Record Type: ' + recordTypeName + ' (' + artworkRecordTypeId + ')');
+} catch (Exception e) {
+    System.debug('Error finding record type with ID ' + artworkRecordTypeId + ': ' + e.getMessage());
+    return;
+}
+
+// Get the page layout name - we'll need to try common patterns
+String layoutName = '';
+List<String> possibleLayoutNames = new List<String>();
+
+// Try different common layout naming patterns
+possibleLayoutNames.add('specright__Specification__c-' + recordTypeName + ' Layout');
+possibleLayoutNames.add('specright__Specification__c-' + recordTypeName);
+possibleLayoutNames.add('specright__Specification__c-specright__' + recordTypeName + ' Layout');
+possibleLayoutNames.add('specright__Specification__c-specright__' + recordTypeName);
+possibleLayoutNames.add('specright__Specification__c-specright__Specification Layout'); // Default
+
+// Try to retrieve layouts to find the correct one
+for (String possibleName : possibleLayoutNames) {
+    try {
+        List<Metadata.Metadata> testLayouts = Metadata.Operations.retrieve(
+            Metadata.MetadataType.Layout, 
+            new List<String>{possibleName}
+        );
+        if (!testLayouts.isEmpty()) {
+            layoutName = possibleName;
+            System.debug('Found layout: ' + layoutName);
+            break;
+        }
+    } catch (Exception e) {
+        // Continue to next possible name
+    }
+}
+
+if (String.isBlank(layoutName)) {
+    System.debug('Could not find specific layout, using default');
+    layoutName = 'specright__Specification__c-specright__Specification Layout';
+}
+
+// Use Metadata API to retrieve the layout
+List<Metadata.Metadata> layouts = Metadata.Operations.retrieve(
+    Metadata.MetadataType.Layout, 
+    new List<String>{layoutName}
+);
+
+if (layouts.isEmpty()) {
+    System.debug('No layout found with name: ' + layoutName);
+    return;
+}
+
+Metadata.Layout layoutMetadata = (Metadata.Layout) layouts[0];
+Set<String> fieldApiNames = new Set<String>();
+Map<String, String> fieldLabelMap = new Map<String, String>();
+
+// Extract fields from all sections in the layout
+for (Metadata.LayoutSection section : layoutMetadata.layoutSections) {
+    for (Metadata.LayoutColumn column : section.layoutColumns) {
+        if (column.layoutItems != null) {
+            for (Metadata.LayoutItem item : column.layoutItems) {
+                if (item.field != null) {
+                    fieldApiNames.add(item.field);
+                }
+            }
+        }
+    }
+}
+
+// Get field describe information to get labels
+Map<String, Schema.SObjectField> fieldMap = Schema.getGlobalDescribe()
+    .get('specright__Specification__c')
+    .getDescribe()
+    .fields.getMap();
+
+for (String apiName : fieldApiNames) {
+    if (fieldMap.containsKey(apiName)) {
+        Schema.DescribeFieldResult fieldDescribe = fieldMap.get(apiName).getDescribe();
+        fieldLabelMap.put(apiName, fieldDescribe.getLabel());
+    }
+}
+
+// Generate CSV content
+String csvContent = 'Field Label,Field API Name\n';
+for (String apiName : fieldApiNames) {
+    String label = fieldLabelMap.get(apiName);
+    if (label != null) {
+        // Escape commas and quotes in field labels
+        if (label.contains(',') || label.contains('"') || label.contains('\n')) {
+            label = '"' + label.replace('"', '""') + '"';
+        }
+        csvContent += label + ',' + apiName + '\n';
+    }
+}
+
+// Create the CSV file as a Document (for Classic) or ContentVersion (for Lightning)
+// Using ContentVersion for Lightning Experience
+ContentVersion csvFile = new ContentVersion();
+csvFile.Title = recordTypeName;
+csvFile.PathOnClient = recordTypeName + '.csv';
+csvFile.VersionData = Blob.valueOf(csvContent);
+csvFile.FirstPublishLocationId = UserInfo.getUserId(); // Link to current user
+
+try {
+    insert csvFile;
+    System.debug('CSV file created successfully!');
+    System.debug('File Title: ' + csvFile.Title);
+    
+    // Get the ContentDocument ID for reference
+    ContentVersion insertedFile = [
+        SELECT ContentDocumentId, Title 
+        FROM ContentVersion 
+        WHERE Id = :csvFile.Id
+    ];
+    System.debug('ContentDocument ID: ' + insertedFile.ContentDocumentId);
+    System.debug('You can find the file in Files tab or in your personal Files library');
+    
+} catch (Exception e) {
+    System.debug('Error creating CSV file: ' + e.getMessage());
+}
+
+// Also output the CSV content to debug log for immediate viewing
+System.debug('CSV Content Preview:');
+System.debug('\n' + csvContent);
