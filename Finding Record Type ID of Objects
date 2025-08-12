@@ -1,0 +1,4 @@
+SELECT Id, Name, DeveloperName 
+FROM RecordType 
+WHERE SObjectType = 'Contact' 
+AND IsActive = true
