@@ -1,0 +1,58 @@
+// Alternative approach - Export visible Account fields for a record type
+Id recordTypeID = '012fh00000077nxAAA';
+
+try {
+    RecordType rt = [SELECT Name, DeveloperName FROM RecordType WHERE Id = :recordTypeID AND SobjectType = 'Account'];
+    System.debug('Record Type: ' + rt.Name);
+    
+    // Get all Account fields
+    Map<String, Schema.SObjectField> fieldMap = Schema.SObjectType.Account.fields.getMap();
+    
+    // Build CSV with accessible fields
+    String csv = 'Field Label,Field API Name,Data Type\n';
+    List<String> fieldNames = new List<String>(fieldMap.keySet());
+    fieldNames.sort();
+    
+    Integer fieldCount = 0;
+    for (String fieldName : fieldNames) {
+        Schema.DescribeFieldResult fieldDescribe = fieldMap.get(fieldName).getDescribe();
+        
+        // Skip system fields
+        if (fieldName.contains('latitude') || fieldName.contains('longitude') || 
+            fieldName.contains('geocode') || fieldName == 'systemmodstamp' ||
+            fieldName == 'lastvieweddate' || fieldName == 'lastreferenceddate') {
+            continue;
+        }
+        
+        // Only include accessible fields
+        if (fieldDescribe.isAccessible()) {
+            String label = fieldDescribe.getLabel();
+            String apiName = fieldDescribe.getName();
+            String dataType = String.valueOf(fieldDescribe.getType());
+            
+            // Fix relationship labels
+            if (apiName == 'OwnerId') label = 'Account Owner';
+            else if (apiName == 'ParentId') label = 'Parent Account';
+            else if (label.endsWith(' ID') && fieldDescribe.getType() == Schema.DisplayType.REFERENCE) {
+                label = label.substring(0, label.length() - 3);
+            }
+            
+            csv += label + ',' + apiName + ',' + dataType + '\n';
+            fieldCount++;
+        }
+    }
+    
+    // Create file
+    ContentVersion file = new ContentVersion();
+    file.Title = rt.Name + '_All_Accessible_Fields';
+    file.PathOnClient = rt.Name + '_Fields.csv';
+    file.VersionData = Blob.valueOf(csv);
+    file.FirstPublishLocationId = UserInfo.getUserId();
+    insert file;
+    
+    System.debug('Success! Exported ' + fieldCount + ' accessible fields');
+    System.debug('Note: This exports ALL accessible Account fields, not just layout fields');
+    
+} catch (Exception e) {
+    System.debug('Error: ' + e.getMessage());
+}

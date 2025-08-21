@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Salesforce XML & Value Parser</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Style for the active view button */
+        .btn-view-active {
+            background-color: #4f46e5 !important; /* indigo-600 */
+            color: white !important;
+            box-shadow: 0 4px 14px 0 rgba(79, 70, 229, 0.39);
+        }
+        .section-header {
+            background-color: #f0f2f5; /* A slightly more neutral SF-like gray */
+            font-weight: 600;
+            color: #18181b; /* zinc-900 */
+            border-bottom: 2px solid #e0e0e0;
+        }
+        /* Styles for the new two-column layout */
+        .field-pair-row td {
+            vertical-align: top;
+            padding: 0.75rem 1.5rem;
+            width: 50%;
+        }
+        .field-label {
+            font-size: 0.8rem;
+            color: #52525b; /* zinc-600 */
+            margin-bottom: 0.1rem;
+        }
+        .field-value {
+            font-size: 0.95rem;
+            color: #18181b; /* zinc-900 */
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-4 sm:p-8 flex flex-col items-center text-gray-800">
+
+    <div class="w-full max-w-5xl bg-white shadow-lg rounded-2xl p-6 sm:p-10 transition-all duration-300">
+        <h1 class="text-4xl sm:text-5xl font-extrabold text-center text-indigo-700 mb-4 tracking-tight">
+            Salesforce XML & Value Parser
+        </h1>
+        <p class="text-center text-gray-600 mb-8 max-w-2xl mx-auto">
+            Paste your Salesforce page layout XML and a list of field data below to create a combined, searchable table or JSON output.
+        </p>
+
+        <!-- XML Input Section -->
+        <div class="mb-8">
+            <h2 class="text-2xl font-bold text-gray-700 mb-4">1. Paste XML Layout</h2>
+            <div class="flex flex-col sm:flex-row items-center sm:space-x-4 mb-4 space-y-4 sm:space-y-0">
+                <label for="xml-file" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-full cursor-pointer transition-colors duration-300 shadow-md">
+                    Choose XML File
+                </label>
+                <input type="file" id="xml-file" class="hidden" accept=".xml,.layout-meta.xml">
+                <span id="xml-file-name" class="text-gray-600 truncate max-w-full">No file chosen</span>
+            </div>
+            <textarea
+                id="xml-input"
+                class="w-full h-48 p-4 text-sm sm:text-base border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-indigo-300 transition-shadow duration-300 shadow-inner"
+                placeholder="Paste your XML content here..."
+                aria-label="XML Content to Parse"
+            ></textarea>
+        </div>
+        
+        <!-- Field Data Input Section -->
+        <div class="mb-8">
+            <h2 class="text-2xl font-bold text-gray-700 mb-4">2. Paste Field Data</h2>
+            <div class="flex flex-col sm:flex-row items-center sm:space-x-4 mb-4 space-y-4 sm:space-y-0">
+                <label for="data-file" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-full cursor-pointer transition-colors duration-300 shadow-md">
+                    Choose Data File
+                </label>
+                <input type="file" id="data-file" class="hidden" accept=".txt,.csv,.json">
+                <span id="data-file-name" class="text-gray-600 truncate max-w-full">No file chosen</span>
+            </div>
+            <textarea
+                id="data-input"
+                class="w-full h-48 p-4 text-sm sm:text-base border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-indigo-300 transition-shadow duration-300 shadow-inner"
+                placeholder="Paste your field data here. Accepted formats: tab-separated table or JSON object."
+                aria-label="Field Data to Parse"
+            ></textarea>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4 mb-8">
+            <button
+                id="parse-button"
+                class="flex-1 px-8 py-3 text-lg font-bold rounded-full text-white transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-indigo-300 transform hover:scale-105 shadow-xl bg-indigo-600 hover:bg-indigo-700"
+            >
+                Parse
+            </button>
+            <button id="show-table-button" class="flex-1 px-8 py-3 text-lg font-bold rounded-full text-indigo-600 bg-gray-100 hover:bg-gray-200 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-indigo-300 transform hover:scale-105 shadow-lg hidden">
+                Table
+            </button>
+            <button id="show-json-button" class="flex-1 px-8 py-3 text-lg font-bold rounded-full text-indigo-600 bg-gray-100 hover:bg-gray-200 transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-indigo-300 transform hover:scale-105 shadow-lg hidden">
+                JSON
+            </button>
+        </div>
+        
+        <!-- Error Message Container -->
+        <div id="error-message" class="hidden mt-6 p-4 bg-red-100 text-red-700 border-l-4 border-red-500 rounded-xl transition-opacity duration-500" role="alert">
+            <p class="font-bold">Error:</p>
+            <p id="error-text"></p>
+        </div>
+        
+        <!-- Controls: Search, View Options, and Exports -->
+        <div id="controls-container" class="hidden mt-8 mb-4">
+            <div class="flex flex-col sm:flex-row justify-between items-center space-y-4 sm:space-y-0 sm:space-x-4">
+                <!-- Search Input -->
+                <div id="search-container" class="relative w-full sm:w-1/2">
+                    <input type="text" id="search-input" placeholder="Search table..." class="w-full p-3 pl-10 border-2 border-gray-200 rounded-full focus:outline-none focus:ring-4 focus:ring-indigo-300 transition-shadow duration-300">
+                    <svg class="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </div>
+                <!-- Export Buttons -->
+                <div class="flex space-x-2">
+                    <button id="export-json-button" class="px-5 py-2 text-sm font-semibold rounded-full bg-green-600 hover:bg-green-700 text-white transition-colors duration-200 shadow-md">Export JSON</button>
+                    <button id="export-csv-button" class="px-5 py-2 text-sm font-semibold rounded-full bg-blue-600 hover:bg-blue-700 text-white transition-colors duration-200 shadow-md">Export CSV</button>
+                </div>
+            </div>
+             <!-- View Options -->
+            <div id="view-options" class="flex justify-center space-x-4 mt-6 mb-4">
+                <button id="vertical-view-button" class="px-6 py-2 text-sm font-semibold rounded-full bg-indigo-200 text-indigo-800 hover:bg-indigo-300 transition-colors duration-200">
+                    Vertical View
+                </button>
+                <button id="horizontal-view-button" class="px-6 py-2 text-sm font-semibold rounded-full bg-gray-200 text-gray-800 hover:bg-gray-300 transition-colors duration-200">
+                    Horizontal View
+                </button>
+            </div>
+        </div>
+
+        <!-- Parsed Fields Table -->
+        <div id="results-container" class="mt-8 overflow-x-auto shadow-lg rounded-xl hidden border border-gray-200">
+            <table class="min-w-full">
+                <thead id="table-head" class="hidden"></thead>
+                <tbody id="field-table-body" class="bg-white"></tbody>
+            </table>
+        </div>
+        
+        <!-- JSON Output Section -->
+        <div id="json-container" class="mt-8 hidden">
+            <pre class="bg-gray-900 text-green-300 rounded-lg p-4 overflow-auto text-sm shadow-inner transition-shadow duration-300 max-h-96">
+                <code id="json-output"></code>
+            </pre>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- Element References ---
+            const xmlInput = document.getElementById('xml-input');
+            const dataInput = document.getElementById('data-input');
+            const parseButton = document.getElementById('parse-button');
+            const showTableButton = document.getElementById('show-table-button');
+            const showJsonButton = document.getElementById('show-json-button');
+            const exportJsonButton = document.getElementById('export-json-button');
+            const exportCsvButton = document.getElementById('export-csv-button');
+            const errorMessage = document.getElementById('error-message');
+            const errorText = document.getElementById('error-text');
+            const controlsContainer = document.getElementById('controls-container');
+            const searchContainer = document.getElementById('search-container');
+            const searchInput = document.getElementById('search-input');
+            const resultsContainer = document.getElementById('results-container');
+            const tableHead = document.getElementById('table-head');
+            const fieldTableBody = document.getElementById('field-table-body');
+            const jsonContainer = document.getElementById('json-container');
+            const jsonOutput = document.getElementById('json-output');
+            const xmlFileInput = document.getElementById('xml-file');
+            const xmlFileName = document.getElementById('xml-file-name');
+            const dataFileInput = document.getElementById('data-file');
+            const dataFileName = document.getElementById('data-file-name');
+            const viewOptions = document.getElementById('view-options');
+            const verticalViewButton = document.getElementById('vertical-view-button');
+            const horizontalViewButton = document.getElementById('horizontal-view-button');
+
+            // --- State Variables ---
+            let extractedData = {}; // Object to hold sections and their fields
+            let isVerticalLayout = true;
+
+            // --- Utility Functions ---
+            function displayError(message) {
+                errorText.textContent = message;
+                errorMessage.classList.remove('hidden');
+            }
+
+            function readFile(file, targetInput, targetName) {
+                if (!file) {
+                    targetName.textContent = 'No file chosen';
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    targetInput.value = e.target.result;
+                    targetName.textContent = file.name;
+                };
+                reader.onerror = () => displayError(`Error reading file: ${file.name}`);
+                reader.readAsText(file);
+            }
+
+            // --- View Management ---
+            function showView(view) {
+                resultsContainer.classList.add('hidden');
+                jsonContainer.classList.add('hidden');
+                showTableButton.classList.remove('btn-view-active');
+                showJsonButton.classList.remove('btn-view-active');
+
+                if (view === 'table') {
+                    resultsContainer.classList.remove('hidden');
+                    controlsContainer.classList.remove('hidden');
+                    searchContainer.classList.remove('hidden');
+                    viewOptions.classList.remove('hidden');
+                    showTableButton.classList.add('btn-view-active');
+                } else if (view === 'json') {
+                    jsonContainer.classList.remove('hidden');
+                    controlsContainer.classList.remove('hidden');
+                    searchContainer.classList.add('hidden');
+                    viewOptions.classList.add('hidden');
+                    showJsonButton.classList.add('btn-view-active');
+                    jsonOutput.textContent = generateJsonContent();
+                }
+            }
+
+            // --- Parsing Logic ---
+            function parseXml(xml) {
+                try {
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(xml, 'text/xml');
+                    if (xmlDoc.getElementsByTagName('parsererror').length > 0) {
+                        throw new Error('Invalid XML format.');
+                    }
+                    
+                    const sections = {};
+                    const layoutSections = xmlDoc.querySelectorAll('layoutSections');
+                    
+                    layoutSections.forEach(section => {
+                        const sectionLabelNode = section.querySelector('label');
+                        const sectionLabel = sectionLabelNode ? sectionLabelNode.textContent : 'General Information';
+                        
+                        if (!sections[sectionLabel]) sections[sectionLabel] = {};
+
+                        const layoutItems = section.querySelectorAll('layoutItems');
+                        layoutItems.forEach(item => {
+                            const fieldNode = item.querySelector('field');
+                            if (fieldNode) {
+                                const apiName = fieldNode.textContent;
+                                let fieldName = apiName.replace(/__c$/, '').replace(/_/g, ' ');
+                                fieldName = fieldName.split(' ').map(w => w.charAt(0).toUpperCase() + w.substr(1).toLowerCase()).join(' ');
+
+                                sections[sectionLabel][apiName] = { 
+                                    fieldName, 
+                                    api: apiName, 
+                                    value: '(Not Found)', 
+                                    type: '' 
+                                };
+                            }
+                        });
+                    });
+                    
+                    return sections;
+                } catch (e) {
+                    throw e;
+                }
+            }
+            
+            function parseFieldData(data) {
+                const fields = {};
+                if (!data.trim()) return fields;
+                
+                try {
+                    const jsonData = JSON.parse(data);
+                    if (typeof jsonData === 'object' && jsonData !== null && !Array.isArray(jsonData)) {
+                        for (const apiName in jsonData) {
+                            fields[apiName] = { label: '', value: jsonData[apiName], type: '' };
+                        }
+                        return fields;
+                    }
+                } catch (e) { /* Not JSON, proceed */ }
+
+                const lines = data.trim().split('\n');
+                let headerIndex = lines.findIndex(line => line.toLowerCase().includes('field api name'));
+                
+                if (headerIndex === -1) {
+                    throw new Error('Could not find a header row with "Field API Name" in the data.');
+                }
+                
+                const headers = lines[headerIndex].split('\t').map(h => h.trim().toLowerCase());
+                const apiNameIndex = headers.indexOf('field api name');
+                const valueIndex = headers.indexOf('value');
+                const labelIndex = headers.indexOf('label');
+                const typeIndex = headers.indexOf('type');
+
+                for (let i = headerIndex + 1; i < lines.length; i++) {
+                    const parts = lines[i].split('\t').map(p => p.trim());
+                    const apiName = parts[apiNameIndex];
+                    if (apiName) {
+                        fields[apiName] = {
+                            label: labelIndex > -1 ? parts[labelIndex] : '',
+                            value: valueIndex > -1 ? parts[valueIndex] : '(Blank)',
+                            type: typeIndex > -1 ? parts[typeIndex] : ''
+                        };
+                    }
+                }
+                return fields;
+            }
+
+            // --- Rendering Logic ---
+            function renderVerticalTable(data) {
+                tableHead.classList.add('hidden'); // Hide thead for this view
+                fieldTableBody.innerHTML = '';
+                
+                const createFieldCellHtml = (field) => {
+                    if (!field) return '<td></td>'; // Return empty cell if no field
+                    return `
+                        <td>
+                            <div class="field-label">${field.fieldName}</div>
+                            <div class="field-value">${field.value}</div>
+                            <div class="font-mono text-xs text-gray-400 mt-1">${field.api}</div>
+                        </td>
+                    `;
+                };
+
+                for (const sectionName in data) {
+                    const sectionRow = document.createElement('tr');
+                    sectionRow.className = 'section-header';
+                    sectionRow.innerHTML = `<td colspan="2" class="px-6 py-2 text-sm">${sectionName}</td>`;
+                    fieldTableBody.appendChild(sectionRow);
+
+                    const fieldsInSection = Object.values(data[sectionName]);
+                    for (let i = 0; i < fieldsInSection.length; i += 2) {
+                        const row = document.createElement('tr');
+                        row.className = 'field-pair-row border-b border-gray-200';
+                        const field1 = fieldsInSection[i];
+                        const field2 = fieldsInSection[i + 1];
+                        row.innerHTML = createFieldCellHtml(field1) + createFieldCellHtml(field2);
+                        fieldTableBody.appendChild(row);
+                    }
+                }
+            }
+
+            function renderHorizontalTable(data) {
+                tableHead.classList.remove('hidden'); // Show thead for this view
+                fieldTableBody.innerHTML = '';
+
+                let allFields = [];
+                for (const sectionName in data) {
+                    allFields = allFields.concat(Object.values(data[sectionName]));
+                }
+                
+                tableHead.innerHTML = `
+                    <tr class="bg-indigo-50">
+                        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Property</th>
+                        ${allFields.map(f => `<th class="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">${f.fieldName}</th>`).join('')}
+                    </tr>
+                `;
+
+                const createRow = (header, dataExtractor) => {
+                    let rowHtml = `<td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-700">${header}</td>`;
+                    allFields.forEach(field => {
+                        rowHtml += `<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-800">${dataExtractor(field)}</td>`;
+                    });
+                    return `<tr class="border-b border-gray-200 hover:bg-gray-50">${rowHtml}</tr>`;
+                };
+
+                fieldTableBody.innerHTML = createRow('API Name', field => `<span class="font-mono">${field.api}</span>`) +
+                                         createRow('Value', field => field.value);
+            }
+
+
+            function renderTable(data) {
+                if (isVerticalLayout) {
+                    renderVerticalTable(data);
+                    searchInput.disabled = false;
+                    searchInput.placeholder = "Search table...";
+                } else {
+                    renderHorizontalTable(data);
+                    searchInput.disabled = true;
+                    searchInput.placeholder = "Search not available in horizontal view";
+                }
+            }
+
+            // --- Data Generation for Export ---
+            function generateJsonContent() {
+                return JSON.stringify(extractedData, null, 2);
+            }
+
+            function generateCsvContent() {
+                let csvContent = "Section,Field Name,API Name,Value,Type\n";
+                const escapeCsv = (str) => `"${String(str).replace(/"/g, '""')}"`;
+
+                for (const sectionName in extractedData) {
+                    for (const apiName in extractedData[sectionName]) {
+                        const field = extractedData[sectionName][apiName];
+                        csvContent += `${escapeCsv(sectionName)},${escapeCsv(field.fieldName)},${escapeCsv(field.api)},${escapeCsv(field.value)},${escapeCsv(field.type)}\n`;
+                    }
+                }
+                return csvContent;
+            }
+
+            // --- Event Listeners ---
+            xmlFileInput.addEventListener('change', (e) => readFile(e.target.files[0], xmlInput, xmlFileName));
+            dataFileInput.addEventListener('change', (e) => readFile(e.target.files[0], dataInput, dataFileName));
+
+            parseButton.addEventListener('click', () => {
+                const xml = xmlInput.value;
+                const data = dataInput.value;
+                
+                parseButton.textContent = 'Parsing...';
+                parseButton.disabled = true;
+                errorMessage.classList.add('hidden');
+                [controlsContainer, resultsContainer, jsonContainer, showTableButton, showJsonButton].forEach(el => el.classList.add('hidden'));
+
+                if (!xml.trim()) {
+                    displayError('Please paste XML content to parse.');
+                    parseButton.textContent = 'Parse';
+                    parseButton.disabled = false;
+                    return;
+                }
+
+                setTimeout(() => {
+                    try {
+                        const sectionsFromXml = parseXml(xml);
+                        const valuesFromData = parseFieldData(data);
+                        
+                        // Combine data
+                        for (const sectionName in sectionsFromXml) {
+                            for (const apiName in sectionsFromXml[sectionName]) {
+                                if (valuesFromData[apiName]) {
+                                    sectionsFromXml[sectionName][apiName].value = valuesFromData[apiName].value;
+                                    sectionsFromXml[sectionName][apiName].type = valuesFromData[apiName].type;
+                                    if(valuesFromData[apiName].label) {
+                                        sectionsFromXml[sectionName][apiName].fieldName = valuesFromData[apiName].label;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        extractedData = sectionsFromXml;
+                        if (Object.keys(extractedData).length > 0) {
+                            renderTable(extractedData);
+                            showTableButton.classList.remove('hidden');
+                            showJsonButton.classList.remove('hidden');
+                            showView('table');
+                        } else {
+                            displayError('No layout sections could be extracted from the XML.');
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        displayError(e.message);
+                    } finally {
+                        parseButton.textContent = 'Parse';
+                        parseButton.disabled = false;
+                    }
+                }, 10);
+            });
+
+            showTableButton.addEventListener('click', () => showView('table'));
+            showJsonButton.addEventListener('click', () => showView('json'));
+
+            verticalViewButton.addEventListener('click', () => {
+                if (isVerticalLayout) return;
+                isVerticalLayout = true;
+                verticalViewButton.classList.add('bg-indigo-200', 'text-indigo-800');
+                verticalViewButton.classList.remove('bg-gray-200', 'text-gray-800');
+                horizontalViewButton.classList.add('bg-gray-200', 'text-gray-800');
+                horizontalViewButton.classList.remove('bg-indigo-200', 'text-indigo-800');
+                renderTable(extractedData);
+            });
+
+            horizontalViewButton.addEventListener('click', () => {
+                if (!isVerticalLayout) return;
+                isVerticalLayout = false;
+                horizontalViewButton.classList.add('bg-indigo-200', 'text-indigo-800');
+                horizontalViewButton.classList.remove('bg-gray-200', 'text-gray-800');
+                verticalViewButton.classList.add('bg-gray-200', 'text-gray-800');
+                verticalViewButton.classList.remove('bg-indigo-200', 'text-indigo-800');
+                renderTable(extractedData);
+
+            });
+            
+            searchInput.addEventListener('keyup', () => {
+                const searchTerm = searchInput.value.toLowerCase();
+                const rows = fieldTableBody.getElementsByTagName('tr');
+                for (const row of rows) {
+                    if (row.classList.contains('section-header')) continue;
+                    
+                    const rowText = row.textContent.toLowerCase();
+                    row.style.display = rowText.includes(searchTerm) ? '' : 'none';
+                }
+            });
+
+            function downloadFile(content, fileName, mimeType) {
+                const blob = new Blob([content], { type: mimeType });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = fileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            }
+
+            exportJsonButton.addEventListener('click', () => downloadFile(generateJsonContent(), 'salesforce_fields.json', 'application/json'));
+            exportCsvButton.addEventListener('click', () => downloadFile(generateCsvContent(), 'salesforce_fields.csv', 'text/csv;charset=utf-8;'));
+        });
+    </script>
+</body>
+</html>

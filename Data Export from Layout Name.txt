@@ -1,0 +1,118 @@
+// Anonymous Apex Script to Extract Page Layout Fields to CSV
+// Replace 'Your_Layout_Name' with the actual page layout name
+String layoutName = 'Supplier Account Layout';
+String objectName = 'Account'; // Replace with your object name
+
+// Use Tooling API to get page layout metadata
+String query = 'SELECT Id, Name, TableEnumOrId FROM Layout WHERE Name = \'' + layoutName + '\'';
+
+try {
+    // Query the Layout using Tooling API
+    HttpRequest req = new HttpRequest();
+    req.setEndpoint(URL.getOrgDomainUrl().toExternalForm() + '/services/data/v58.0/tooling/query/?q=' + EncodingUtil.urlEncode(query, 'UTF-8'));
+    req.setMethod('GET');
+    req.setHeader('Authorization', 'Bearer ' + UserInfo.getSessionId());
+    req.setHeader('Content-Type', 'application/json');
+    
+    Http h = new Http();
+    HttpResponse res = h.send(req);
+    
+    if (res.getStatusCode() == 200) {
+        Map<String, Object> responseMap = (Map<String, Object>) JSON.deserializeUntyped(res.getBody());
+        List<Object> records = (List<Object>) responseMap.get('records');
+        
+        if (!records.isEmpty()) {
+            Map<String, Object> layoutRecord = (Map<String, Object>) records[0];
+            String layoutId = (String) layoutRecord.get('Id');
+            
+            // Get detailed layout metadata
+            String metadataQuery = 'SELECT Metadata FROM Layout WHERE Id = \'' + layoutId + '\'';
+            
+            HttpRequest metaReq = new HttpRequest();
+            metaReq.setEndpoint(URL.getOrgDomainUrl().toExternalForm() + '/services/data/v58.0/tooling/query/?q=' + EncodingUtil.urlEncode(metadataQuery, 'UTF-8'));
+            metaReq.setMethod('GET');
+            metaReq.setHeader('Authorization', 'Bearer ' + UserInfo.getSessionId());
+            metaReq.setHeader('Content-Type', 'application/json');
+            
+            HttpResponse metaRes = h.send(metaReq);
+            
+            if (metaRes.getStatusCode() == 200) {
+                Map<String, Object> metaResponseMap = (Map<String, Object>) JSON.deserializeUntyped(metaRes.getBody());
+                List<Object> metaRecords = (List<Object>) metaResponseMap.get('records');
+                
+                if (!metaRecords.isEmpty()) {
+                    Map<String, Object> metaRecord = (Map<String, Object>) metaRecords[0];
+                    Map<String, Object> metadata = (Map<String, Object>) metaRecord.get('Metadata');
+                    
+                    // Parse layout sections and extract fields
+                    Set<String> fieldApiNames = new Set<String>();
+                    List<Object> layoutSections = (List<Object>) metadata.get('layoutSections');
+                    
+                    if (layoutSections != null) {
+                        for (Object sectionObj : layoutSections) {
+                            Map<String, Object> section = (Map<String, Object>) sectionObj;
+                            List<Object> layoutColumns = (List<Object>) section.get('layoutColumns');
+                            
+                            if (layoutColumns != null) {
+                                for (Object columnObj : layoutColumns) {
+                                    Map<String, Object> column = (Map<String, Object>) columnObj;
+                                    List<Object> layoutItems = (List<Object>) column.get('layoutItems');
+                                    
+                                    if (layoutItems != null) {
+                                        for (Object itemObj : layoutItems) {
+                                            Map<String, Object> item = (Map<String, Object>) itemObj;
+                                            String fieldName = (String) item.get('field');
+                                            if (fieldName != null && !fieldName.equals('')) {
+                                                fieldApiNames.add(fieldName);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Get field labels using describe
+                    Map<String, Schema.SObjectField> fieldMap = Schema.getGlobalDescribe().get(objectName).getDescribe().fields.getMap();
+                    
+                    // Generate CSV content
+                    String csvContent = 'Field Label,API Name\n';
+                    
+                    for (String apiName : fieldApiNames) {
+                        if (fieldMap.containsKey(apiName)) {
+                            String fieldLabel = fieldMap.get(apiName).getDescribe().getLabel();
+                            csvContent += '"' + fieldLabel + '","' + apiName + '"\n';
+                        }
+                    }
+                    
+                    // Create a Document to store the CSV
+                    Document csvDoc = new Document();
+                    csvDoc.Name = layoutName + '_Fields_Export_' + DateTime.now().format('yyyyMMdd_HHmmss') + '.csv';
+                    csvDoc.Body = Blob.valueOf(csvContent);
+                    csvDoc.ContentType = 'text/csv';
+                    csvDoc.Type = 'csv';
+                    csvDoc.FolderId = UserInfo.getUserId(); // Save to user's personal folder
+                    
+                    insert csvDoc;
+                    
+                    System.debug('CSV file created successfully with ID: ' + csvDoc.Id);
+                    System.debug('CSV Content Preview:\n' + csvContent);
+                    System.debug('Total fields found: ' + fieldApiNames.size());
+                    
+                } else {
+                    System.debug('No metadata found for layout');
+                }
+            } else {
+                System.debug('Error getting layout metadata: ' + metaRes.getBody());
+            }
+            
+        } else {
+            System.debug('Layout not found: ' + layoutName);
+        }
+    } else {
+        System.debug('Error querying layouts: ' + res.getBody());
+    }
+    
+} catch (Exception e) {
+    System.debug('Exception occurred: ' + e.getMessage());
+}

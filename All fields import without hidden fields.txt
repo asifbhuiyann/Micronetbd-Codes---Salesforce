@@ -1,0 +1,148 @@
+// Anonymous Apex script to extract ONLY visible Contact fields
+// Matches exactly what you see in Setup → Object Manager → Contact → Fields & Relationships
+
+// Get all fields from the Contact object
+Map<String, Schema.SObjectField> fieldMap = Schema.getGlobalDescribe()
+    .get('Contact')
+    .getDescribe()
+    .fields.getMap();
+
+// Manual mapping for relationship field labels to match UI
+Map<String, String> relationshipLabelMap = new Map<String, String>{
+    'AccountId' => 'Account Name',
+    'OwnerId' => 'Owner',
+    'CreatedById' => 'Created By',
+    'LastModifiedById' => 'Last Modified By',
+    'ReportsToId' => 'Reports To',
+    'MasterRecordId' => 'Master Record'
+};
+
+// Generate CSV content
+String csvContent = 'Field Label,Field API Name,Data Type,Required,Length\n';
+
+List<String> sortedFieldNames = new List<String>(fieldMap.keySet());
+sortedFieldNames.sort();
+
+Integer fieldCount = 0;
+
+for (String fieldName : sortedFieldNames) {
+    Schema.DescribeFieldResult fieldDescribe = fieldMap.get(fieldName).getDescribe();
+    
+    // SKIP all system/hidden fields that don't appear in the UI
+    // Skip geocoding fields
+    if (fieldName.toLowerCase().contains('latitude') || 
+        fieldName.toLowerCase().contains('longitude') || 
+        fieldName.toLowerCase().contains('geocode')) {
+        continue;
+    }
+    
+    // Skip system timestamp fields
+    if (fieldName.equals('SystemModstamp') ||
+        fieldName.equals('LastViewedDate') ||
+        fieldName.equals('LastReferencedDate')) {
+        continue;
+    }
+    
+    // Skip other system fields
+    if (fieldName.equals('IsDeleted') ||
+        fieldName.equals('PhotoUrl') ||
+        fieldName.equals('Jigsaw') ||
+        fieldName.equals('JigsawContactId') ||
+        fieldName.equals('CleanStatus') ||
+        fieldName.equals('IndividualId') ||
+        fieldName.equals('IsEmailBounced') ||
+        fieldName.equals('EmailBouncedReason') ||
+        fieldName.equals('EmailBouncedDate')) {
+        continue;
+    }
+    
+    // Skip if field is not accessible (hidden from UI)
+    if (!fieldDescribe.isAccessible()) {
+        continue;
+    }
+    
+    // Get field properties
+    String label = fieldDescribe.getLabel();
+    String apiName = fieldDescribe.getName();
+    String dataType = String.valueOf(fieldDescribe.getType());
+    String isRequired = fieldDescribe.isNillable() ? 'No' : 'Yes';
+    String length = fieldDescribe.getLength() > 0 ? String.valueOf(fieldDescribe.getLength()) : 'N/A';
+    
+    // Fix relationship field labels to match UI
+    if (relationshipLabelMap.containsKey(apiName)) {
+        label = relationshipLabelMap.get(apiName);
+    }
+    
+    // Escape commas and quotes in field labels
+    if (label.contains(',') || label.contains('"') || label.contains('\n')) {
+        label = '"' + label.replace('"', '""') + '"';
+    }
+    
+    csvContent += label + ',' + apiName + ',' + dataType + ',' + isRequired + ',' + length + '\n';
+    fieldCount++;
+}
+
+// Create the CSV file
+ContentVersion csvFile = new ContentVersion();
+csvFile.Title = 'Contact_Fields_UI_Only';
+csvFile.PathOnClient = 'Contact_Fields_UI_Only.csv';
+csvFile.VersionData = Blob.valueOf(csvContent);
+csvFile.FirstPublishLocationId = UserInfo.getUserId();
+
+try {
+    insert csvFile;
+    System.debug('CSV file created successfully!');
+    System.debug('File Title: ' + csvFile.Title);
+    System.debug('Total UI-visible fields exported: ' + fieldCount);
+    
+    // Get the ContentDocument ID
+    ContentVersion insertedFile = [
+        SELECT ContentDocumentId, Title 
+        FROM ContentVersion 
+        WHERE Id = :csvFile.Id
+    ];
+    System.debug('ContentDocument ID: ' + insertedFile.ContentDocumentId);
+    System.debug('You can find the file in Files tab or in your personal Files library');
+    
+} catch (Exception e) {
+    System.debug('Error creating CSV file: ' + e.getMessage());
+}
+
+// Preview first 10 fields
+System.debug('========== FIELD PREVIEW (First 10) ==========');
+Integer previewCount = 0;
+for (String fieldName : sortedFieldNames) {
+    if (previewCount >= 10) break;
+    
+    // Skip hidden fields in preview too
+    if (fieldName.toLowerCase().contains('latitude') || 
+        fieldName.toLowerCase().contains('longitude') || 
+        fieldName.toLowerCase().contains('geocode') ||
+        fieldName.equals('SystemModstamp') ||
+        fieldName.equals('LastViewedDate') ||
+        fieldName.equals('LastReferencedDate') ||
+        fieldName.equals('IsDeleted') ||
+        fieldName.equals('PhotoUrl') ||
+        fieldName.equals('Jigsaw') ||
+        fieldName.equals('JigsawContactId') ||
+        fieldName.equals('CleanStatus') ||
+        fieldName.equals('IndividualId')) {
+        continue;
+    }
+    
+    Schema.DescribeFieldResult fieldDescribe = fieldMap.get(fieldName).getDescribe();
+    if (!fieldDescribe.isAccessible()) {
+        continue;
+    }
+    
+    String label = fieldDescribe.getLabel();
+    String apiName = fieldDescribe.getName();
+    
+    // Apply relationship label fix
+    if (relationshipLabelMap.containsKey(apiName)) {
+        label = relationshipLabelMap.get(apiName);
+    }
+    
+    System.debug(label + ' → ' + apiName);
+    previewCount++;
+}
